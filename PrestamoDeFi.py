@@ -67,92 +67,94 @@ if resultado == true:
 else:
     print("Hubo un problema al agregar el prestamista.")
     
-# Función para registrar un nuevo cliente
-def alta_cliente(nuevo_cliente_address, prestamista_address, prestamista_private_key):
-    try:
-        # Verificar si el cliente ya está registrado
-        if contract_instance.functions.prestamistas(prestamista_address).call():
-            return "El cliente ya está registrado"
-        
-        # Firmar la transacción
-        nonce = w3.eth.getTransactionCount(prestamista_address)
-        transaction = contract_instance.functions.alta_cliente(nuevo_cliente_address).buildTransaction({
-            'from': prestamista_address,
-            'nonce': nonce,
-            'gas': 3000000,
-            'gasPrice': w3.toWei('5000', 'wei')
-        })
-        signed_txn = w3.eth.account.signTransaction(transaction, prestamista_private_key)
-        
-        # Enviar la transacción
-        tx_hash = w3.eth.sendRawTransaction(signed_txn.rawTransaction)
-        tx_receipt = w3.eth.waitForTransactionReceipt(tx_hash)
-        
-        # Verificar el estado de la transacción
-        if tx_receipt.status:
-            return "Cliente registrado exitosamente"
-        else:
-            return "Error en la transacción"
-    except Exception as e:
-        print(f"Error al ejecutar la transacción: {e}")
-        return 
+# Interactuar con el contrato
+cliente_registry = web3.eth.contract(address=tx_receipt.contractAddress, abi=contract_interface["abi"])
 
-# Ejecutar la función
-resultado = alta_cliente(nuevo_cliente_address, prestamista_address, prestamista_private_key)
-if resultado:
-    print(resultado)
+# Función para registrar un nuevo cliente
+def alta_cliente(nuevo_cliente_address):
+    # Verificar si el cliente ya está registrado
+    if cliente_registry.functions.clientes(nuevo_cliente_address).call():
+        return "El cliente ya está registrado"
+
+    # Enviar la transacción para registrar al nuevo cliente
+    tx_hash = cliente_registry.functions.altaCliente(nuevo_cliente_address).transact()
+    tx_receipt = w3.eth.waitForTransactionReceipt(tx_hash)
+
+    # Retornar el resultado
+    if tx_receipt.status:
+        return "Cliente registrado con éxito"
+    else:
+        return "Fallo en la transacción"
+
+contract_interface = compiled_sol["contracts"]["GarantiaContract.sol"]["GarantiaContract"]
+
+# Despliegue del contrato
+contract = web3.eth.contract(abi=contract_interface["abi"], bytecode=contract_interface["evm"]["bytecode"]["object"])
+
+# Transacción de despliegue del contrato
+tx_hash = contract.constructor().transact({"from": cliente_address, "gas": 4000000, "nonce": web3.eth.getTransactionCount(cliente_address), "value": web3.toWei(0.1, "ether")})
+tx_receipt = web3.eth.waitForTransactionReceipt(tx_hash)
+
+# Interactuar con el contrato
+garantia_contract = web3.eth.contract(address=tx_receipt.contractAddress, abi=contract_interface["abi"])
+
+
+def depositar_garantia():
+    # Preparar la transacción con el monto de la garantía
+    nonce = w3.eth.getTransactionCount()
+    tx = garantia_contract.functions.depositarGarantia().buildTransaction({
+        #"from": direccion_cliente,
+        #"value": valor,
+        "gas": 3000000,
+        "gasPrice": w3.toWei('5000', 'wei'),
+        "nonce": nonce,
+    })
+
+    # Firmar la transacción
+    signed_tx = w3.eth.account.signTransaction(tx)
+
+    # Enviar la transacción
+    tx_hash = w3.eth.sendRawTransaction(signed_tx.rawTransaction)
+    tx_receipt = w3.eth.waitForTransactionReceipt(tx_hash)
+
+    # Retornar el resultado
+    if tx_receipt.status:
+        return "Garantía depositada exitosamente"
+    else:
+        return "Fallo en la transacción"
+
+
+# Interactuar con el contrato
+prestamo_contract = web3.eth.contract(address=tx_receipt.contractAddress, abi=contract_interface["abi"])
 
 # Función para depositar garantía
-def depositar_garantia(direccion_cliente, valor, clave_privada_cliente):
-    try:
-        # Preparar la transacción
-        nonce = w3.eth.getTransactionCount(direccion_cliente)
-        transaction = contract_instance.functions.depositarGarantia().buildTransaction({
-            'from': direccion_cliente,
-            'nonce': nonce,
-            'value': w3.toWei(valor, 'ether'),
-            'gas': 3000000,
-            'gasPrice': w3.toWei('5000', 'wei')
-        })
-        
-        # Firmar la transacción
-        signed_txn = w3.eth.account.signTransaction(transaction, clave_privada_cliente)
-        
-        # Enviar la transacción
-        tx_hash = w3.eth.sendRawTransaction(signed_txn.rawTransaction)
-        tx_receipt = w3.eth.waitForTransactionReceipt(tx_hash)
-        
-        # Verificar el estado de la transacción
-        if tx_receipt.status == 1:
-            return "Garantía depositada exitosamente"
-        else:
-            return "Error en la transacción"
-    except Exception as e:
-        print(f"Error al ejecutar la transacción: {e}")
-        return None
-    
-# Ejecutar la función
-resultado = depositar_garantia(cliente_address, monto_garantia, clave_privada_cliente)
-if resultado:
-    print(resultado)
-    
-# Función para solicitar un préstamo
-def solicitar_prestamo(direccion_cliente, monto, plazo, clave_privada_cliente):
-    try:
-        nonce = w3.eth.getTransactionCount(direccion_cliente)
-        transaction = contract_instance.functions.solicitar_prestamo(direccion_cliente, monto, plazo).buildTransaction({
-            'from': direccion_cliente,
-            'nonce': nonce,
-            'gas': 3000000,
-            'gasPrice': w3.toWei('5000', 'wei')
-        })
-        signed_txn = w3.eth.account.signTransaction(transaction, clave_privada_cliente)
-        tx_hash = w3.eth.sendRawTransaction(signed_txn.rawTransaction)
-        tx_receipt = w3.eth.waitForTransactionReceipt(tx_hash)
-        return tx_receipt.events["PrestamoSolicitado"]["id"]
-    except Exception as e:
-        print(f"Error al solicitar el préstamo: {e}")
-        return None
+def solicitar_prestamo(monto, plazo):
+    # Verificar si el cliente tiene suficiente garantía
+    if prestamo_contract.functions.garantias().call() < monto:
+        return "Garantía insuficiente"
+
+    # Enviar la solicitud de préstamo
+    nonce = w3.eth.getTransactionCount()
+    tx = prestamo_contract.functions.solicitarPrestamo(monto, plazo).buildTransaction({
+        #"from": direccion_cliente,
+        "gas": 3000000,
+        "gasPrice": w3.toWei('5000', 'wei'),
+        "nonce": nonce,
+    })
+
+    # Firmar la transacción
+    signed_tx = w3.eth.account.signTransaction(tx)
+
+    # Enviar la transacción
+    tx_hash = w3.eth.sendRawTransaction(signed_tx.rawTransaction)
+    tx_receipt = w3.eth.waitForTransactionReceipt(tx_hash)
+
+    # Retornar el ID del préstamo si la transacción es exitosa
+    if tx_receipt.status:
+        return "ID del préstamo: " + str(len(prestamo_contract.functions.prestamos().call()) - 1)
+    else:
+        return "Fallo en la transacción"
+
     
 # Ejecutar la función
 resultado = depositar_garantia(cliente_address, monto_garantia, clave_privada_cliente)
@@ -160,18 +162,18 @@ if resultado:
     print(resultado)
     
 # Función para aprobar un préstamo
-def aprobar_prestamo(prestatario_address, prestamo_id, prestamista_address, prestamista_private_key):
+def aprobar_prestamo(prestamo_id, prestamista_address):
     try:
         # Comprobar la validez del préstamo y del prestatario
         if not contract_instance.functions.prestamos(prestamo_id).aprobado():
             nonce = w3.eth.getTransactionCount(prestamista_address)
-            transaction = contract_instance.functions.aprobar_prestamo(prestatario_address, prestamo_id).buildTransaction({
+            transaction = contract_instance.functions.aprobar_prestamo(prestamo_id).buildTransaction({
                 'from': prestamista_address,
                 'nonce': nonce,
                 'gas': 3000000,
                 'gasPrice': w3.toWei('5000', 'wei')
             })
-            signed_txn = w3.eth.account.signTransaction(transaction, prestamista_private_key)
+            signed_txn = w3.eth.account.signTransaction(transaction)
             tx_hash = w3.eth.sendRawTransaction(signed_txn.rawTransaction)
             tx_receipt = w3.eth.waitForTransactionReceipt(tx_hash)
             return tx_receipt
@@ -182,21 +184,21 @@ def aprobar_prestamo(prestatario_address, prestamo_id, prestamista_address, pres
         return None
     
 # Ejecutar la función
-resultado = aprobar_prestamo(prestatario_address, prestamo_id, prestamista_address, prestamista_private_key)
+resultado = aprobar_prestamo(prestamo_id, prestamista_address)
 if resultado:
     print("El préstamo fue aprobado exitosamente.")
 
 # Función para reembolsar un préstamo
-def reembolsar_prestamo(prestamo_id, cliente_address, cliente_private_key):
+def reembolsar_prestamo(prestamo_id):
     try:
-        nonce = w3.eth.getTransactionCount(cliente_address)
+        nonce = w3.eth.getTransactionCount()
         transaction = contract_instance.functions.reembolsar_prestamo(prestamo_id).buildTransaction({
-            'from': cliente_address,
+            #'from': cliente_address,
             'nonce': nonce,
             'gas': 3000000,
             'gasPrice': w3.toWei('5000', 'wei')
         })
-        signed_txn = w3.eth.account.signTransaction(transaction, cliente_private_key)
+        signed_txn = w3.eth.account.signTransaction(transaction)
         tx_hash = w3.eth.sendRawTransaction(signed_txn.rawTransaction)
         tx_receipt = w3.eth.waitForTransactionReceipt(tx_hash)
         return tx_receipt
@@ -205,12 +207,12 @@ def reembolsar_prestamo(prestamo_id, cliente_address, cliente_private_key):
         return None
 
 # Ejecutar la función
-resultado = reembolsar_prestamo(prestamo_id, cliente_address, cliente_private_key)
+resultado = reembolsar_prestamo(prestamo_id)
 if resultado:
     print("El préstamo fue reembolsado exitosamente.")
     
 # Función para liquidar la garantía de un préstamo
-def liquidar_garantia(prestamo_id, prestamista_address, prestamista_private_key):
+def liquidar_garantia(prestamo_id, prestamista_address):
     try:
         nonce = w3.eth.getTransactionCount(prestamista_address)
         transaction = contract_instance.functions.liquidar_garantia(prestamo_id).buildTransaction({
@@ -219,7 +221,7 @@ def liquidar_garantia(prestamo_id, prestamista_address, prestamista_private_key)
             'gas': 3000000,
             'gasPrice': w3.toWei('5000', 'wei')
         })
-        signed_txn = w3.eth.account.signTransaction(transaction, prestamista_private_key)
+        signed_txn = w3.eth.account.signTransaction(transaction)
         tx_hash = w3.eth.sendRawTransaction(signed_txn.rawTransaction)
         tx_receipt = w3.eth.waitForTransactionReceipt(tx_hash)
         return tx_receipt
@@ -228,7 +230,7 @@ def liquidar_garantia(prestamo_id, prestamista_address, prestamista_private_key)
         return None
 
 # Ejecutar la función
-resultado = liquidar_garantia(prestamo_id, prestamista_address, prestamista_private_key)
+resultado = liquidar_garantia(prestamo_id, prestamista_address)
 if resultado:
     print("La garantía ha sido liquidada exitosamente.")
     
